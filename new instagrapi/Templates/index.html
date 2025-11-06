@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gemini AI Instagram Poster</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+    <style>
+        body { font-family: Arial, sans-serif; background-color: #f0f2f5; padding: 20px; }
+        .container { max-width: 800px; margin: 0 auto; background-color: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); }
+        header { text-align: center; margin-bottom: 20px; }
+        header p { color: #0095f6; font-weight: bold; }
+        input[type="text"], textarea { width: 100%; padding: 10px; margin: 10px 0; border: 1px solid #dbdbdb; border-radius: 4px; box-sizing: border-box; }
+        .btn-group button { margin-right: 10px; } /* Spacing for the new buttons */
+        button { background-color: #0095f6; color: white; padding: 12px 20px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
+        button:hover { background-color: #007bb6; }
+        button:disabled { background-color: #a0a0a0; cursor: not-allowed; }
+        #regenerate-btn { background-color: #ff9900; }
+        #regenerate-btn:hover { background-color: #cc7a00; }
+        #back-btn { background-color: #6c757d; }
+        #back-btn:hover { background-color: #5a6268; }
+        #post-btn { background-color: #4CAF50; }
+        #post-btn:hover { background-color: #3e8e41; }
+        #loading { display: none; text-align: center; margin: 20px 0; }
+        #result { margin-top: 30px; text-align: center; }
+        #generated-image { max-width: 100%; height: auto; border-radius: 8px; margin-top: 15px; border: 1px solid #ccc; }
+        .post-area { margin-top: 20px; padding: 15px; border: 1px dashed #ccc; border-radius: 5px; }
+        .flash-message { padding: 10px; margin-bottom: 15px; border-radius: 4px; font-weight: bold; }
+        .flash-success { background-color: #e6ffed; border: 1px solid #4caf50; color: #4caf50; }
+        .flash-error { background-color: #ffebe8; border: 1px solid #ed4956; color: #ed4956; }
+        .button-row { display: flex; justify-content: flex-start; margin-top: 10px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Gemini AI Instagram Poster 🖼️📸</h1>
+            
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    {% for category, message in messages %}
+                        <div class="flash-message flash-{{ category }}">{{ message }}</div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
+
+            {% if username %}
+            <p>
+                Welcome, **@{{ username }}**! | 
+                <a href="{{ url_for('logout') }}" style="color: #ed4956; text-decoration: none;">Logout</a>
+            </p>
+            {% endif %}
+        </header>
+
+        <section id="generator-form">
+            <h2>1. Generate Your Image</h2>
+            <form id="idea-form">
+                <input type="text" id="user-idea" placeholder="Enter your creative idea (e.g., A cyberpunk cat drinking coffee)" 
+                       value="{{ last_result.user_idea if last_result and last_result.user_idea else '' }}" required>
+                <div class="button-row">
+                    <button type="submit" id="generate-btn" class="btn-group button"><i class="fas fa-magic"></i> Generate Image</button>
+                    <button type="button" id="regenerate-btn" class="btn-group button" style="display: none;"><i class="fas fa-sync-alt"></i> Regenerate</button>
+                </div>
+            </form>
+        </section>
+
+        <div id="loading">Generating image... Please wait.</div>
+
+        <section id="result" style="display: {% if last_result.image_url %}block{% else %}none{% endif %};">
+            <h2>2. Generated Content</h2>
+            <p><strong>Expanded Prompt:</strong> <span id="expanded-prompt">
+                {% if last_result.detailed_prompt %}{{ last_result.detailed_prompt }}{% endif %}
+            </span></p>
+            <p><strong>Status:</strong> <span id="image-status">
+                {% if last_result.image_status %}{{ last_result.image_status }}{% endif %}
+            </span></p>
+
+            <img id="generated-image" 
+                 src="{% if last_result.image_url %}{{ last_result.image_url }}{% endif %}" 
+                 alt="Generated Image" 
+                 style="display: {% if last_result.image_url %}block{% else %}none{% endif %};">
+
+            <div class="button-row" style="justify-content: center; margin-bottom: 20px;">
+                <button type="button" id="back-btn" class="btn-group button" style="display: none;"><i class="fas fa-undo"></i> Back to Last</button>
+            </div>
+
+
+            <div class="post-area">
+                <h3>3. Post to Instagram</h3>
+                <p>Edit the caption if needed before posting.</p>
+                <textarea id="caption-input" rows="3" placeholder="Enter your Instagram caption here...">{% if last_result.caption %}{{ last_result.caption }}{% else %}Generated by Gemini AI.{% endif %}</textarea>
+                <button id="post-btn" {% if not last_result.image_url %}disabled{% endif %}><i class="fab fa-instagram"></i> Post to Instagram</button>
+            </div>
+        </section>
+        
+        <p id="post-message" style="margin-top: 15px; font-weight: bold;"></p>
+    </div>
+
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+
+    <script>
+        // Store the last successful generation data (loaded from Flask context or updated by JS)
+        const flaskData = {{ last_result | tojson }};
+        let lastSuccessfulGeneration = flaskData; 
+        let originalIdea = $('#user-idea').val(); 
+
+        // --- DOM Elements (Using jQuery for convenience) ---
+        const $userIdea = $('#user-idea');
+        const $generateBtn = $('#generate-btn');
+        const $regenerateBtn = $('#regenerate-btn');
+        const $backBtn = $('#back-btn');
+        const $postBtn = $('#post-btn');
+        const $loadingDiv = $('#loading');
+        const $resultSection = $('#result');
+        const $generatedImage = $('#generated-image');
+        const $expandedPromptSpan = $('#expanded-prompt');
+        const $imageStatusSpan = $('#image-status');
+        const $captionInput = $('#caption-input');
+        const $postMessage = $('#post-message');
+        
+        // --- Utility Functions ---
+
+        /**
+         * Updates the UI with the image data.
+         * @param {Object} data - The response data from the /generate or /last_image endpoint.
+         * @param {boolean} isBackAction - True if this call originated from the Back button click.
+         */
+        function displayResult(data, isBackAction = false) {
+            if (data.image_url && data.image_path) {
+                // Update global state
+                lastSuccessfulGeneration = data;
+                
+                // Update UI elements
+                $expandedPromptSpan.text(data.detailed_prompt);
+                $imageStatusSpan.text(data.image_status);
+                $generatedImage.attr('src', data.image_url).show();
+                $resultSection.show();
+                $postBtn.prop('disabled', false);
+                $regenerateBtn.show();
+
+                // Only set default caption if it's a new generation (or initial load)
+                if (!isBackAction) {
+                    // Use a simple check to avoid overwriting a user's typed caption
+                    if ($captionInput.val() === '' || $captionInput.val().includes('Generated by Gemini AI')) {
+                         $captionInput.val(`${data.detailed_prompt}\n\n#GeminiAI #ImageGeneration`);
+                    }
+                }
+                
+                // --- BACK BUTTON VISIBILITY LOGIC ---
+                
+                if (!isBackAction) {
+                    // New generation occurred: History created, show Back button.
+                    sessionStorage.setItem('has_previous_image', 'true');
+                    $backBtn.show();
+                } else { 
+                    // 'Back' action occurred: History consumed, hide Back button.
+                    sessionStorage.setItem('has_previous_image', 'false');
+                    $backBtn.hide();
+                }
+
+            } else {
+                alert('Generation Error: ' + (data.error || data.image_status));
+                $postBtn.prop('disabled', true);
+                $regenerateBtn.show();
+            }
+        }
+        
+        /**
+         * Handles the AJAX call for image generation.
+         */
+        async function handleGeneration(idea) {
+            if (!idea) return;
+
+            // Reset UI for new generation
+            $resultSection.hide();
+            $generatedImage.hide().attr('src', '');
+            $postBtn.prop('disabled', true);
+            $postMessage.text('');
+            $loadingDiv.show();
+            $generateBtn.prop('disabled', true);
+            $regenerateBtn.prop('disabled', true);
+
+            try {
+                const response = await fetch('/generate', {
+                    method: 'POST',
+                    body: new URLSearchParams({ idea: idea })
+                });
+
+                const data = await response.json();
+                
+                if (response.ok && data.image_url) {
+                    $userIdea.val(idea); 
+                    displayResult(data);
+                } else {
+                    alert('Generation Error: ' + (data.error || 'Failed to generate image.'));
+                }
+
+            } catch (error) {
+                console.error('Fetch error:', error);
+                alert('An unexpected error occurred during image generation.');
+            } finally {
+                $loadingDiv.hide();
+                $generateBtn.prop('disabled', false);
+                $regenerateBtn.prop('disabled', false).show();
+            }
+        }
+
+        // --- Event Listeners ---
+        
+        // 1. Initial Generation
+        $('#idea-form').on('submit', (e) => {
+            e.preventDefault();
+            const idea = $userIdea.val();
+            handleGeneration(idea);
+        });
+        
+        // 2. Regenerate Button
+        $regenerateBtn.on('click', () => {
+            const idea = $userIdea.val();
+            handleGeneration(idea);
+        });
+
+        // 3. Back Button (New Logic)
+        $backBtn.on('click', async () => {
+            $postMessage.text('Restoring previous image...');
+            $backBtn.prop('disabled', true).html('<i class="fas fa-undo"></i> Loading...');
+            $postBtn.prop('disabled', true); 
+
+            try {
+                const response = await fetch('/last_image', {
+                    method: 'GET'
+                });
+                
+                const data = await response.json();
+
+                if (response.ok) {
+                    displayResult(data, true); 
+                    $postMessage.text('Previous image successfully restored.');
+                } else {
+                    alert('Back Failed: ' + (data.error || 'No previous image found.'));
+                }
+
+            } catch (error) {
+                console.error('Back request error:', error);
+                alert('An unexpected error occurred while loading the previous image.');
+            } finally {
+                $backBtn.prop('disabled', false).html('<i class="fas fa-undo"></i> Back to Last');
+            }
+        });
+
+        // 4. Post to Instagram
+        $postBtn.on('click', async () => {
+            if (!lastSuccessfulGeneration || !lastSuccessfulGeneration.image_path) {
+                alert('Please generate an image first.');
+                return;
+            }
+
+            $postBtn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> Posting...');
+            $postMessage.text('Attempting to post to Instagram...');
+            $postMessage.css('color', 'black');
+            
+            try {
+                const response = await fetch('/post', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        image_path: lastSuccessfulGeneration.image_path,
+                        caption: $captionInput.val()
+                    })
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.success) {
+                    $postMessage.css('color', 'green').text(data.message);
+                } else {
+                    $postMessage.css('color', 'red').text(data.message);
+                    if (data.redirect_to) {
+                        alert('Your Instagram session expired. Please log in again.');
+                        window.location.href = data.redirect_to;
+                        return;
+                    }
+                }
+            } catch (error) {
+                console.error('Post error:', error);
+                $postMessage.css('color', 'red').text('An unexpected error occurred during the post attempt.');
+            } finally {
+                $postBtn.prop('disabled', false).html('<i class="fab fa-instagram"></i> Post to Instagram');
+                
+                if (lastSuccessfulGeneration && lastSuccessfulGeneration.image_path) {
+                    $postBtn.prop('disabled', false);
+                }
+            }
+        });
+        
+        // --- Initial Setup on Page Load ---
+        
+        $(document).ready(function() {
+            // If an image was loaded from the server's session, show the Regenerate button
+            if (flaskData && flaskData.image_url) {
+                $regenerateBtn.show();
+            }
+            
+            // Check if the history flag was set in sessionStorage from the last session
+            if (sessionStorage.getItem('has_previous_image') === 'true') {
+                 $backBtn.show();
+            }
+        });
+    </script>
+</body>
+</html>
